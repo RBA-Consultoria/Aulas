@@ -1,0 +1,1406 @@
+---
+title: "Aula"
+author: "Bruno Mesquita dos Santos"
+date: "2025-07-12"
+output:
+  html_document:
+    df_print: paged
+    fig_width: 13   # Largura padrão para figuras em HTML
+    fig_height: 8   # Altura padrão para figuras em HTML
+  pdf_document: default
+  
+---
+
+```{r}
+library(readr)
+library(dplyr)
+library(plotly)
+library(readxl)
+library(sf)
+library(tidyr)
+library(classInt)
+library(ggspatial)
+if(!require('basedosdados'))install.packages("basedosdados");library(basedosdados)
+if(!require('usethis'))install.packages("usethis");library(usethis)
+if(!require('jsonlite'))install.packages("jsonlite");library(jsonlite)
+if(!require('haven'))install.packages("haven");library(haven)
+```
+
+```{r}
+rm_accent <- function(x) iconv(x, to = "ASCII//TRANSLIT")
+```
+
+```{r}
+series <- read_excel("~/GitHub/AULAS/Dados/Tabela 4099.xlsx", skip = 3)
+names(series) <- c('data','valor')
+series$data <- gsub("º trimestre ", "-", series$data)
+series$Ano <- as.numeric(substr(series$data, 3, 6))
+series$Trimestre <- as.numeric(substr(series$data, 1, 1))
+series <- series %>%
+  filter(Ano >= 2013 & Ano < 2023) %>%
+  mutate(data = paste0(Ano, "-Q", Trimestre)) %>%
+  select(data, valor)
+series$valor <- as.numeric(series$valor)
+```
+
+# Base Corporate
+
+```{r}
+corporate <- read_csv("~/GitHub/MIM/dados/cretool/corporate.csv")
+names(corporate) <- gsub('[$]','S',gsub('[/]','_',gsub('[)]','',gsub('[(]','',gsub('%','porc', gsub(' ','_',rm_accent(names(corporate))))))))
+
+
+corporate$AnoTri = paste0(corporate$Ano,'-Q',corporate$Trimestre)
+
+
+
+corporate_filtro <- corporate %>%
+  filter(!(Status %in% c("Em Construção","Em Projeto","Fora de Mercado")))
+
+
+corporate_filtro1 <- corporate %>%
+  filter(!(Status %in% c("Em Construção","Em Construção (Retrofit)","Em Projeto","Fora de Mercado")))
+```
+
+# Rais Base
+
+```{r eval=FALSE, include=FALSE}
+if (!require('plotly'))install.packages("plotly");library(plotly) 
+if (!require("survey")) install.packages("survey");library(survey) 
+if (!require("srvyr")) install.packages("srvyr");library(srvyr) 
+if (!require("convey")) install.packages("convey");library(convey)
+if (!require("PNADcIBGE")) install.packages("PNADcIBGE");library(PNADcIBGE)
+if (!require("forecast")) install.packages("forecast");library(forecast)
+if (!require("readstata13")) install.packages("readstata13");library(readstata13) 
+if (!require("tidyverse")) install.packages("tidyverse");library(tidyverse) 
+if (!require("dplyr")) install.packages("dplyr");library(dplyr) 
+if (!require('reshape2'))install.packages("reshape2");library(reshape2)
+if (!require('stringi'))install.packages("stringi");library(stringi)
+if (!require('htmlwidgets'))install.packages("htmlwidgets");library(htmlwidgets)
+if (!require('randomcoloR'))install.packages("randomcoloR");library(randomcoloR)
+
+rm_accent <- function(x) iconv(x, to = "ASCII//TRANSLIT")
+setwd("~/GitHub/Dashes/HTMLs")
+options(scipen=999)
+ay <- list(
+  tickfont = list(color = "red"),
+  overlaying = "y",
+  side = "right",
+  title = "Porcentagem",
+  color = "red")
+
+
+
+df_capitais = data.frame()
+
+
+for (i in 2012:2022){
+  for (q in 1:4){
+    
+    # trabalhadores -----------------------------------------------------------
+    
+    options(survey.lonely.psu="certainty")
+    dadosPNADc <- get_pnadc(year= i, quarter= q)
+    
+    dadosPNADc <- update(dadosPNADc, D_Idade = ifelse(coalesce((V2009 >= 14 & V2009 <= 65), FALSE), "Ativa", 'Inativa'))
+    
+    
+    dadosPNADc$variables$Capital <- ifelse(dadosPNADc$variables$Capital=="Município de São Paulo (SP)","São Paulo", "Outros")
+    
+    
+    # capital -----------------------------------------------------------------
+    
+    df_pnad <- as.data.frame(
+      svytotal(~interaction(Ano, Trimestre, Capital, D_Idade == "Ativa" & VD4002 == "Pessoas desocupadas"),
+               design=dadosPNADc, na.rm=TRUE))
+    df_pnad2 <- as.data.frame(
+      svytotal(~interaction(Ano, Trimestre, Capital, D_Idade == "Ativa"),
+               design=dadosPNADc, na.rm=TRUE))
+    
+    merge()
+    
+    df_pnad$SE <- NULL
+    
+    df_pnad <- cbind(index = rownames(df_pnad), df_pnad)
+    rownames(df_pnad) <- 1:nrow(df_pnad)
+    
+    df_pnad$index <- str_sub(df_pnad$index, 88, str_length(df_pnad$index))
+    
+    
+    out <- strsplit(df_pnad$index, '[.]')
+    c <- as.data.frame(do.call(rbind, out))
+    names(c) <- c('ano','quater','Capital','bool_cod')
+    df_pnad <- cbind(df_pnad, c)
+    
+    df_pnad <- df_pnad[df_pnad$bool_cod=='TRUE',]
+    df_pnad <- df_pnad[df_pnad$Capital=='São Paulo',]
+    
+    df_capitais <- rbind(df_capitais, df_pnad)
+    
+    gc()
+  }
+}
+
+write.csv(df_capitais, "df_capitais.csv", row.names = FALSE)
+```
+
+```{r}
+df_capitais = read.csv("~/GitHub/AULAS/Dados/df_capitais.csv")
+```
+
+```{r}
+df_capitais$AnoTri = paste0(df_capitais$ano,'-Q',df_capitais$quater)
+```
+
+```{r}
+#-----------------------------------------------------------------------
+# Passo 1: Preparação dos dados (seu código, sem alterações)
+# Assumindo que 'corporate_filtro', 'corporate_filtro1' e 'series' já existem
+#-----------------------------------------------------------------------
+
+# Dados para as barras (Estoque)
+temp1 <- corporate_filtro[corporate_filtro$Ano >= 2013 & corporate_filtro$Ano < 2023,]
+temp1 <- temp1 %>% dplyr::group_by(AnoTri) %>%
+         dplyr::summarise(Estoque_Total_m2 = sum(Estoque_Total_m2),
+                          Estoque_vago_m2 = sum(Vacancia_m2)) %>%
+         # Correção: O cálculo deve ser feito após o summarise
+         dplyr::mutate(Estoque_oculpado_m2 = Estoque_Total_m2 - Estoque_vago_m2,
+                       taxa_Estoque_vago_m2 = Estoque_vago_m2 / Estoque_Total_m2,
+                       taxa_Estoque_oculpado_m2 = Estoque_oculpado_m2 / Estoque_Total_m2)
+
+# Dados para a primeira linha (Taxa de Vacância Calculada)
+temp2 <- corporate_filtro1[corporate_filtro1$Ano >= 2013 & corporate_filtro1$Ano < 2023,]
+temp2$tava_de_vacancia_calc <- (temp2$Vacancia_m2/temp2$Estoque_Total_m2)*100
+temp <- temp2 %>% dplyr::group_by(AnoTri) %>% dplyr::summarise(tava_de_vacancia_calc_mean = mean(tava_de_vacancia_calc), units = n())
+
+
+
+#-----------------------------------------------------------------------
+# Passo 2: Construção do Gráfico com Eixo Y Secundário
+#-----------------------------------------------------------------------
+
+fig <- plot_ly()
+
+# --- EIXO Y PRIMÁRIO (Esquerda) ---
+# Trace 0: Barras para o Estoque Total
+fig <- fig %>% add_trace(x = temp1$AnoTri,
+                         y = temp1$Estoque_Total_m2,
+                         mode = 'lines+markers',
+                         type = 'scatter',
+                         line = list(shape = "spline", width = 4),
+                         name = 'Estoque Total (m²)') # Nome para a legenda
+
+# --- EIXO Y SECUNDÁRIO (Direita) ---
+# Trace 1: Linha para a sua Taxa de Vacância Média
+fig <- fig %>% add_trace(x = temp$AnoTri,
+                         y = temp$tava_de_vacancia_calc_mean,
+                         mode = 'lines',
+                         type = 'scatter',
+                         line = list(shape = "spline", width = 4, dash = 'dash'),
+                         name = 'Taxa de Vacância (%)', # Nome para a legenda
+                         yaxis = "y2") # <-- ASSOCIAR AO EIXO Y2
+
+# Trace 2: Linha para a Taxa de Vacância do BC
+fig <- fig %>% add_trace(x = df_capitais$AnoTri,
+                         y = df_capitais$total,
+                         mode = 'lines+markers',
+                         type = 'scatter',
+                         connectgaps = TRUE,
+                         line = list(shape = "spline", width = 4),
+                         name = 'Pessoas Ocupadas') 
+
+# --- CONFIGURAÇÃO DOS EIXOS (LAYOUT) ---
+fig <- fig %>% layout(
+    title = 'Análise de Estoque, Taxa de Vacância e Empregos (2013-2022)',
+    
+    # Configura o eixo Y primário (esquerda)
+    yaxis = list(
+        title = 'Total'
+    ),
+    
+    # Configura o eixo Y secundário (direita)
+    yaxis2 = list(
+        overlaying = "y",  # Sobrepõe o eixo 'y' primário
+        side = "right",    # Posiciona no lado direito
+        title = 'Taxa de Vacância (%)', # Título do eixo
+        showgrid = FALSE,  # Remove a grade para não poluir
+        zeroline = FALSE,  # Remove a linha do zero
+        range = c(0, max(temp$tava_de_vacancia_calc_mean) * 1.2), # Ajusta o range
+        tickformat = "%.1f%%" # Formata os ticks para mostrar o símbolo de %
+    ),
+    
+    # Configura o eixo X
+    xaxis = list(
+        title = 'Ano-Trimestre <br><sup>Fonte: IBGE-PNADc e Buildings</sup>'
+    ),
+    
+    # Outras configurações úteis
+    legend = list(
+        orientation = 'h', # Legenda na horizontal
+        xanchor = 'center',
+        x = 0.5,
+        y = -0.2
+    ),
+    barmode = 'group' # Modo das barras
+)
+
+# Exibir o gráfico
+fig
+```
+
+## Financiamento imobiliário com taxas de mercado - Pós-fixado referenciado em TR
+
+```{r eval=FALSE, include=FALSE}
+# 1. Gerar a sequência de datas (dia 01 de cada mês de 2012 a 2022)
+datas_consulta <- seq.Date(from = as.Date("2012-01-01"), to = as.Date("2025-06-01"), by = "month")
+
+# to string
+datas_consulta <- format(datas_consulta, "%Y-%m-%d")
+
+# 2. Criar uma lista vazia para armazenar os data frames de cada mês
+lista_resultados <- list()
+
+# 3. Loop para percorrer cada data, buscar na API e armazenar na lista
+for (data_atual in datas_consulta) {
+  
+  # Constrói a URL dinamicamente com a data atual
+  url_bcb <- sprintf(
+    "https://www.bcb.gov.br/api/servico/sitebcb/historicotaxajurosdiario/TodosCampos?filtro=(codigoSegmento%%20eq%%20%%271%%27)%%20and%%20(codigoModalidade%%20eq%%20%%27903201%%27)%%20and%%20(InicioPeriodo%%20eq%%20%%27%s%%27)",
+    data_atual
+  )
+  
+  # Bloco tryCatch para evitar que o loop pare em caso de erro na requisição
+  dados_mes <- tryCatch({
+    fromJSON(url_bcb)
+  }, error = function(e) {
+    # Se ocorrer um erro (ex: sem dados para a data, ou falha na conexão), imprime a mensagem de erro
+    message(paste("Erro ou sem dados para", data_atual, ":", e$message))
+    # Retorna NULL para que este item não seja processado depois
+    return(NULL)
+  })
+  
+  # Verifica se a API retornou algum dado e se o objeto não é nulo
+  if (!is.null(dados_mes) && length(dados_mes$conteudo) > 0) {
+    # Adiciona o data frame de resultados ('value') à lista
+    lista_resultados[[data_atual]] <- dados_mes$conteudo
+  }
+  
+  # Adiciona uma pequena pausa para não sobrecarregar o servidor da API
+  Sys.sleep(1) 
+}
+
+# 4. Empilha todos os data frames da lista em um único data frame
+fin_imob_taxas_mercado_pos_TR <- bind_rows(lista_resultados, .id = "DataConsulta")
+
+# 5. Verifique o resultado final
+print("Busca finalizada!")
+print(paste("Total de registros encontrados:", nrow(fin_imob_taxas_mercado_pos_TR)))
+
+```
+
+## Financiamento imobiliário com taxas reguladas - Pós-fixado referenciado em TR
+
+```{r eval=FALSE, include=FALSE}
+# 1. Gerar a sequência de datas (dia 01 de cada mês de 2012 a 2022)
+datas_consulta <- seq.Date(from = as.Date("2012-01-01"), to = as.Date("2025-06-01"), by = "month")
+
+# to string
+datas_consulta <- format(datas_consulta, "%Y-%m-%d")
+
+# 2. Criar uma lista vazia para armazenar os data frames de cada mês
+lista_resultados <- list()
+
+# 3. Loop para percorrer cada data, buscar na API e armazenar na lista
+for (data_atual in datas_consulta) {
+  
+  # Constrói a URL dinamicamente com a data atual
+  url_bcb <- sprintf(
+    "https://www.bcb.gov.br/api/servico/sitebcb/historicotaxajurosdiario/TodosCampos?filtro=(codigoSegmento%%20eq%%20%%271%%27)%%20and%%20(codigoModalidade%%20eq%%20%%27905201%%27)%%20and%%20(InicioPeriodo%%20eq%%20%%27%s%%27)",
+    data_atual
+  )
+  
+  # Bloco tryCatch para evitar que o loop pare em caso de erro na requisição
+  dados_mes <- tryCatch({
+    fromJSON(url_bcb)
+  }, error = function(e) {
+    # Se ocorrer um erro (ex: sem dados para a data, ou falha na conexão), imprime a mensagem de erro
+    message(paste("Erro ou sem dados para", data_atual, ":", e$message))
+    # Retorna NULL para que este item não seja processado depois
+    return(NULL)
+  })
+  
+  # Verifica se a API retornou algum dado e se o objeto não é nulo
+  if (!is.null(dados_mes) && length(dados_mes$conteudo) > 0) {
+    # Adiciona o data frame de resultados ('value') à lista
+    lista_resultados[[data_atual]] <- dados_mes$conteudo
+  }
+  
+  # Adiciona uma pequena pausa para não sobrecarregar o servidor da API
+  Sys.sleep(1) 
+}
+
+# 4. Empilha todos os data frames da lista em um único data frame
+fin_imob_taxas_reguladas_pos_TR <- bind_rows(lista_resultados, .id = "DataConsulta")
+
+# 5. Verifique o resultado final
+print("Busca finalizada!")
+print(paste("Total de registros encontrados:", nrow(fin_imob_taxas_reguladas_pos_TR)))
+
+```
+
+## Pessoa Física - Financiamento imobiliário com taxas de mercado - Pós-fixado referenciado em IPCA
+
+```{r eval=FALSE, include=FALSE}
+# 1. Gerar a sequência de datas (dia 01 de cada mês de 2012 a 2022)
+datas_consulta <- seq.Date(from = as.Date("2019-01-01"), to = as.Date("2025-06-01"), by = "month")
+
+# to string
+datas_consulta <- format(datas_consulta, "%Y-%m-%d")
+
+# 2. Criar uma lista vazia para armazenar os data frames de cada mês
+lista_resultados <- list()
+
+# 3. Loop para percorrer cada data, buscar na API e armazenar na lista
+for (data_atual in datas_consulta) {
+
+  # Constrói a URL dinamicamente com a data atual
+  url_bcb <- sprintf(
+    "https://www.bcb.gov.br/api/servico/sitebcb/historicotaxajurosdiario/TodosCampos?filtro=(codigoSegmento%%20eq%%20%%271%%27)%%20and%%20(codigoModalidade%%20eq%%20%%27903203%%27)%%20and%%20(InicioPeriodo%%20eq%%20%%27%s%%27)",
+    data_atual
+  )
+  
+  # Bloco tryCatch para evitar que o loop pare em caso de erro na requisição
+  dados_mes <- tryCatch({
+    fromJSON(url_bcb)
+  }, error = function(e) {
+    # Se ocorrer um erro (ex: sem dados para a data, ou falha na conexão), imprime a mensagem de erro
+    message(paste("Erro ou sem dados para", data_atual, ":", e$message))
+    # Retorna NULL para que este item não seja processado depois
+    return(NULL)
+  })
+  
+  # Verifica se a API retornou algum dado e se o objeto não é nulo
+  if (!is.null(dados_mes) && length(dados_mes$conteudo) > 0) {
+    # Adiciona o data frame de resultados ('value') à lista
+    lista_resultados[[data_atual]] <- dados_mes$conteudo
+  }
+  
+  # Adiciona uma pequena pausa para não sobrecarregar o servidor da API
+  Sys.sleep(1) 
+}
+
+# 4. Empilha todos os data frames da lista em um único data frame
+fin_imob_taxas_mercado_pos_IPCA <- bind_rows(lista_resultados, .id = "DataConsulta")
+
+# 5. Verifique o resultado final
+print("Busca finalizada!")
+print(paste("Total de registros encontrados:", nrow(fin_imob_taxas_mercado_pos_IPCA)))
+
+```
+
+## Pessoa Física - Financiamento imobiliário com taxas de reguladas - Pós-fixado referenciado em IPCA
+
+```{r eval=FALSE, include=FALSE}
+# 1. Gerar a sequência de datas (dia 01 de cada mês de 2012 a 2022)
+datas_consulta <- seq.Date(from = as.Date("2019-01-01"), to = as.Date("2025-06-01"), by = "month")
+
+# to string
+datas_consulta <- format(datas_consulta, "%Y-%m-%d")
+
+# 2. Criar uma lista vazia para armazenar os data frames de cada mês
+lista_resultados <- list()
+
+# 3. Loop para percorrer cada data, buscar na API e armazenar na lista
+for (data_atual in datas_consulta) {
+
+  # Constrói a URL dinamicamente com a data atual
+  url_bcb <- sprintf(
+    "https://www.bcb.gov.br/api/servico/sitebcb/historicotaxajurosdiario/TodosCampos?filtro=(codigoSegmento%%20eq%%20%%271%%27)%%20and%%20(codigoModalidade%%20eq%%20%%27905203%%27)%%20and%%20(InicioPeriodo%%20eq%%20%%27%s%%27)",
+    data_atual
+  )
+  
+  # Bloco tryCatch para evitar que o loop pare em caso de erro na requisição
+  dados_mes <- tryCatch({
+    fromJSON(url_bcb)
+  }, error = function(e) {
+    # Se ocorrer um erro (ex: sem dados para a data, ou falha na conexão), imprime a mensagem de erro
+    message(paste("Erro ou sem dados para", data_atual, ":", e$message))
+    # Retorna NULL para que este item não seja processado depois
+    return(NULL)
+  })
+  
+  # Verifica se a API retornou algum dado e se o objeto não é nulo
+  if (!is.null(dados_mes) && length(dados_mes$conteudo) > 0) {
+    # Adiciona o data frame de resultados ('value') à lista
+    lista_resultados[[data_atual]] <- dados_mes$conteudo
+  }
+  
+  # Adiciona uma pequena pausa para não sobrecarregar o servidor da API
+  Sys.sleep(1) 
+}
+
+# 4. Empilha todos os data frames da lista em um único data frame
+fin_imob_taxas_reguladas_pos_IPCA <- bind_rows(lista_resultados, .id = "DataConsulta")
+
+# 5. Verifique o resultado final
+print("Busca finalizada!")
+print(paste("Total de registros encontrados:", nrow(fin_imob_taxas_reguladas_pos_IPCA)))
+
+```
+
+```{r eval=FALSE, include=FALSE}
+
+write.csv(fin_imob_taxas_mercado_pos_TR, "~/GitHub/AULAS/Dados/fin_imob_taxas_mercado_pos_TR.csv", row.names = FALSE)
+write.csv(fin_imob_taxas_reguladas_pos_TR, "~/GitHub/AULAS/Dados/fin_imob_taxas_reguladas_pos_TR.csv", row.names = FALSE)
+write.csv(fin_imob_taxas_mercado_pos_IPCA, "~/GitHub/AULAS/Dados/fin_imob_taxas_mercado_pos_IPCA.csv", row.names = FALSE)
+write.csv(fin_imob_taxas_reguladas_pos_IPCA, "~/GitHub/AULAS/Dados/fin_imob_taxas_reguladas_pos_IPCA.csv", row.names = FALSE)
+
+```
+
+```{r}
+
+read_csv("~/GitHub/AULAS/Dados/fin_imob_taxas_mercado_pos_TR.csv") -> fin_imob_taxas_mercado_pos_TR
+read_csv("~/GitHub/AULAS/Dados/fin_imob_taxas_reguladas_pos_TR.csv") -> fin_imob_taxas_reguladas_pos_TR
+read_csv("~/GitHub/AULAS/Dados/fin_imob_taxas_mercado_pos_IPCA.csv") -> fin_imob_taxas_mercado_pos_IPCA
+read_csv("~/GitHub/AULAS/Dados/fin_imob_taxas_reguladas_pos_IPCA.csv") -> fin_imob_taxas_reguladas_pos_IPCA
+
+```
+
+```{r}
+
+fin_imob_taxas_mercado_pos_TR <- fin_imob_taxas_mercado_pos_TR %>% 
+                                      select(DataConsulta, TaxaJurosAoAno, InstituicaoFinanceira) %>%  
+                                      filter(InstituicaoFinanceira == 'BCO BRADESCO S.A.' |
+                                             InstituicaoFinanceira == 'CAIXA ECONOMICA FEDERAL' |
+                                             InstituicaoFinanceira == 'ITAÚ UNIBANCO S.A.' | 
+                                             InstituicaoFinanceira == 'BCO SANTANDER (BRASIL) S.A.' |
+                                             InstituicaoFinanceira == 'BCO DO BRASIL S.A.'
+                                             )%>%
+                                      spread(InstituicaoFinanceira,TaxaJurosAoAno)
+
+fin_imob_taxas_mercado_pos_TR$DataConsulta <- as.Date(fin_imob_taxas_mercado_pos_TR$DataConsulta, "%d-%m-%Y")
+fin_imob_taxas_mercado_pos_TR <- fin_imob_taxas_mercado_pos_TR[order(fin_imob_taxas_mercado_pos_TR$DataConsulta),]
+
+fin_imob_taxas_mercado_pos_TR$`BCO BRADESCO S.A.` = as.numeric(gsub(",", ".", fin_imob_taxas_mercado_pos_TR$`BCO BRADESCO S.A.`))
+fin_imob_taxas_mercado_pos_TR$`BCO SANTANDER (BRASIL) S.A.` = as.numeric(gsub(",", ".", fin_imob_taxas_mercado_pos_TR$`BCO SANTANDER (BRASIL) S.A.`))
+fin_imob_taxas_mercado_pos_TR$`CAIXA ECONOMICA FEDERAL` = as.numeric(gsub(",", ".", fin_imob_taxas_mercado_pos_TR$`CAIXA ECONOMICA FEDERAL`))
+fin_imob_taxas_mercado_pos_TR$`ITAÚ UNIBANCO S.A.` = as.numeric(gsub(",", ".", fin_imob_taxas_mercado_pos_TR$`ITAÚ UNIBANCO S.A.`))
+fin_imob_taxas_mercado_pos_TR$`BCO DO BRASIL S.A.` = as.numeric(gsub(",", ".", fin_imob_taxas_mercado_pos_TR$`BCO DO BRASIL S.A.`))
+
+
+fig <- plot_ly(x = fin_imob_taxas_mercado_pos_TR$DataConsulta)
+fig <- fig %>% add_trace(y = fin_imob_taxas_mercado_pos_TR$`BCO BRADESCO S.A.`, name = "BRADESCO", type = 'scatter', mode = 'lines+markers', connectgaps = TRUE,line = list(shape = "spline")) 
+fig <- fig %>% add_trace(y = fin_imob_taxas_mercado_pos_TR$`BCO SANTANDER (BRASIL) S.A.`, name = "SANTANDER", type = 'scatter', mode = 'lines+markers', connectgaps = TRUE,line = list(shape = "spline")) 
+fig <- fig %>% add_trace(y = fin_imob_taxas_mercado_pos_TR$`CAIXA ECONOMICA FEDERAL`, name = "CAIXA", type = 'scatter', mode = 'lines+markers', connectgaps = TRUE,line = list(shape = "spline")) 
+fig <- fig %>% add_trace(y = fin_imob_taxas_mercado_pos_TR$`ITAÚ UNIBANCO S.A.`, name = "ITAÚ", type = 'scatter', mode = 'lines+markers', connectgaps = TRUE,line = list(shape = "spline")) 
+fig <- fig %>% add_trace(y = fin_imob_taxas_mercado_pos_TR$`BCO DO BRASIL S.A.`, name = "BCO DO BRASIL", type = 'scatter', mode = 'lines+markers', connectgaps = TRUE,line = list(shape = "spline"))
+fig <- fig %>% layout(title = "Financiamento Imobiliário com taxas de mercados - Pós-Fixados Referenciado em TR",
+                      xaxis = list(title = "Data<br><sup>Fonte: Bacen</sup>"),
+                      yaxis = list (title = "Taxa Juros ao Ano"))
+fig
+
+```
+
+```{r}
+
+fin_imob_taxas_reguladas_pos_TR <- fin_imob_taxas_reguladas_pos_TR %>% 
+                                      select(DataConsulta, TaxaJurosAoAno, InstituicaoFinanceira) %>%  
+                                      filter(InstituicaoFinanceira == 'BCO BRADESCO S.A.' |
+                                             InstituicaoFinanceira == 'CAIXA ECONOMICA FEDERAL' |
+                                             InstituicaoFinanceira == 'ITAÚ UNIBANCO S.A.' | 
+                                             InstituicaoFinanceira == 'BCO SANTANDER (BRASIL) S.A.' |
+                                             InstituicaoFinanceira == 'BCO DO BRASIL S.A.'
+                                             )%>%
+                                      spread(InstituicaoFinanceira,TaxaJurosAoAno)
+fin_imob_taxas_reguladas_pos_TR[fin_imob_taxas_reguladas_pos_TR$DataConsulta=="2022-05-01",4]=NA
+fin_imob_taxas_reguladas_pos_TR$DataConsulta <- as.Date(fin_imob_taxas_reguladas_pos_TR$DataConsulta, "%d-%m-%Y")
+fin_imob_taxas_reguladas_pos_TR <- fin_imob_taxas_reguladas_pos_TR[order(fin_imob_taxas_reguladas_pos_TR$DataConsulta),]
+
+fin_imob_taxas_reguladas_pos_TR$`BCO BRADESCO S.A.` = as.numeric(gsub(",", ".", fin_imob_taxas_reguladas_pos_TR$`BCO BRADESCO S.A.`))
+fin_imob_taxas_reguladas_pos_TR$`BCO SANTANDER (BRASIL) S.A.` = as.numeric(gsub(",", ".", fin_imob_taxas_reguladas_pos_TR$`BCO SANTANDER (BRASIL) S.A.`))
+fin_imob_taxas_reguladas_pos_TR$`CAIXA ECONOMICA FEDERAL` = as.numeric(gsub(",", ".", fin_imob_taxas_reguladas_pos_TR$`CAIXA ECONOMICA FEDERAL`))
+fin_imob_taxas_reguladas_pos_TR$`ITAÚ UNIBANCO S.A.` = as.numeric(gsub(",", ".", fin_imob_taxas_reguladas_pos_TR$`ITAÚ UNIBANCO S.A.`))
+fin_imob_taxas_reguladas_pos_TR$`BCO DO BRASIL S.A.` = as.numeric(gsub(",", ".", fin_imob_taxas_reguladas_pos_TR$`BCO DO BRASIL S.A.`))
+
+
+fig <- plot_ly(x = fin_imob_taxas_reguladas_pos_TR$DataConsulta)
+fig <- fig %>% add_trace(y = fin_imob_taxas_reguladas_pos_TR$`BCO BRADESCO S.A.`, name = "BRADESCO", type = 'scatter', mode = 'lines+markers', connectgaps = TRUE,line = list(shape = "spline")) 
+fig <- fig %>% add_trace(y = fin_imob_taxas_reguladas_pos_TR$`BCO SANTANDER (BRASIL) S.A.`, name = "SANTANDER", type = 'scatter', mode = 'lines+markers', connectgaps = TRUE,line = list(shape = "spline")) 
+fig <- fig %>% add_trace(y = fin_imob_taxas_reguladas_pos_TR$`CAIXA ECONOMICA FEDERAL`, name = "CAIXA", type = 'scatter', mode = 'lines+markers', connectgaps = TRUE,line = list(shape = "spline")) 
+fig <- fig %>% add_trace(y = fin_imob_taxas_reguladas_pos_TR$`ITAÚ UNIBANCO S.A.`, name = "ITAÚ", type = 'scatter', mode = 'lines+markers', connectgaps = TRUE,line = list(shape = "spline")) 
+fig <- fig %>% add_trace(y = fin_imob_taxas_reguladas_pos_TR$`BCO DO BRASIL S.A.`, name = "BCO DO BRASIL", type = 'scatter', mode = 'lines+markers', connectgaps = TRUE,line = list(shape = "spline"))
+fig <- fig %>% layout(title = "Financiamento Imobiliário com taxas de reguladas - Pós-Fixados Referenciado em TR",
+                      xaxis = list(title = "Data<br><sup>Fonte: Bacen</sup>"),
+                      yaxis = list (title = "Taxa Juros ao Ano"))
+fig
+
+```
+
+```{r}
+
+fin_imob_taxas_mercado_pos_IPCA <- fin_imob_taxas_mercado_pos_IPCA %>% 
+                                      select(DataConsulta, TaxaJurosAoAno, InstituicaoFinanceira) %>%  
+                                      filter(InstituicaoFinanceira == 'CAIXA ECONOMICA FEDERAL' |
+                                             InstituicaoFinanceira == 'BCO DO BRASIL S.A.'
+                                             )%>%
+                                      spread(InstituicaoFinanceira,TaxaJurosAoAno)
+
+fin_imob_taxas_mercado_pos_IPCA$DataConsulta <- as.Date(fin_imob_taxas_mercado_pos_IPCA$DataConsulta, "%d-%m-%Y")
+fin_imob_taxas_mercado_pos_IPCA <- fin_imob_taxas_mercado_pos_IPCA[order(fin_imob_taxas_mercado_pos_IPCA$DataConsulta),]
+
+fin_imob_taxas_mercado_pos_IPCA$`CAIXA ECONOMICA FEDERAL` = as.numeric(gsub(",", ".", fin_imob_taxas_mercado_pos_IPCA$`CAIXA ECONOMICA FEDERAL`))
+fin_imob_taxas_mercado_pos_IPCA$`BCO DO BRASIL S.A.` = as.numeric(gsub(",", ".", fin_imob_taxas_mercado_pos_IPCA$`BCO DO BRASIL S.A.`))
+
+
+fig <- plot_ly(x = fin_imob_taxas_mercado_pos_IPCA$DataConsulta)
+fig <- fig %>% add_trace(y = fin_imob_taxas_mercado_pos_IPCA$`CAIXA ECONOMICA FEDERAL`, name = "CAIXA", type = 'scatter', mode = 'lines+markers', connectgaps = TRUE,line = list(shape = "spline"))
+fig <- fig %>% add_trace(y = fin_imob_taxas_mercado_pos_IPCA$`BCO DO BRASIL S.A.`, name = "BCO DO BRASIL", type = 'scatter', mode = 'lines+markers', connectgaps = TRUE,line = list(shape = "spline"))
+fig <- fig %>% layout(title = "Financiamento Imobiliário com taxas de mercado - Pós-fixado referenciado em IPCA",
+                      xaxis = list(title = "Data<br><sup>Fonte: Bacen</sup>"),
+                      yaxis = list (title = "Taxa Juros ao Ano"))
+fig
+
+```
+
+```{r}
+
+fin_imob_taxas_reguladas_pos_IPCA <- fin_imob_taxas_reguladas_pos_IPCA %>% 
+                                      select(DataConsulta, TaxaJurosAoAno, InstituicaoFinanceira) %>%  
+                                      filter(InstituicaoFinanceira == 'BCO BRADESCO S.A.' |
+                                             InstituicaoFinanceira == 'CAIXA ECONOMICA FEDERAL' |
+                                             InstituicaoFinanceira == 'ITAÚ UNIBANCO S.A.' | 
+                                             InstituicaoFinanceira == 'BCO SANTANDER (BRASIL) S.A.' |
+                                             InstituicaoFinanceira == 'BCO DO BRASIL S.A.'
+                                             )%>%
+                                      spread(InstituicaoFinanceira,TaxaJurosAoAno)
+
+fin_imob_taxas_reguladas_pos_IPCA$DataConsulta <- as.Date(fin_imob_taxas_reguladas_pos_IPCA$DataConsulta, "%d-%m-%Y")
+fin_imob_taxas_reguladas_pos_IPCA <- fin_imob_taxas_reguladas_pos_IPCA[order(fin_imob_taxas_reguladas_pos_IPCA$DataConsulta),]
+
+fin_imob_taxas_reguladas_pos_IPCA$`CAIXA ECONOMICA FEDERAL` = as.numeric(gsub(",", ".", fin_imob_taxas_reguladas_pos_IPCA$`CAIXA ECONOMICA FEDERAL`))
+fin_imob_taxas_reguladas_pos_IPCA$`BCO DO BRASIL S.A.` = as.numeric(gsub(",", ".", fin_imob_taxas_reguladas_pos_IPCA$`BCO DO BRASIL S.A.`))
+
+
+fig <- plot_ly(x = fin_imob_taxas_reguladas_pos_IPCA$DataConsulta)
+fig <- fig %>% add_trace(y = fin_imob_taxas_reguladas_pos_IPCA$`CAIXA ECONOMICA FEDERAL`, name = "CAIXA", type = 'scatter', mode = 'lines+markers', connectgaps = TRUE,line = list(shape = "spline"))
+fig <- fig %>% add_trace(y = fin_imob_taxas_reguladas_pos_IPCA$`BCO DO BRASIL S.A.`, name = "BCO DO BRASIL", type = 'scatter', mode = 'lines+markers', connectgaps = TRUE,line = list(shape = "spline"))
+fig <- fig %>% layout(title = "Financiamento Imobiliário com taxas de regulado - Pós-fixado referenciado em IPCA",
+                      xaxis = list(title = "Data<br><sup>Fonte: Bacen</sup>"),
+                      yaxis = list (title = "Taxa Juros ao Ano"))
+fig
+
+```
+
+```{r}
+fipezap_serieshistoricas <- read_excel("~/GitHub/AULAS/Dados/fipezap-serieshistoricas.xlsx", 
+    sheet = "São Paulo", range = "B4:V214")
+```
+
+```{r}
+fig <- plot_ly()
+fig <- fig %>% add_trace(x = fipezap_serieshistoricas$Data, y = as.numeric(fipezap_serieshistoricas$Total...12)*100, name = "Valor médio do m²", type = 'scatter', mode = 'lines+markers', connectgaps = TRUE,line = list(shape = "spline"))
+fig <- fig %>% layout(title = "Índice de Preços de Imóveis Residenciais",
+                      xaxis = list(title = "Data<br><sup>Fonte: FipeZap</sup>"),
+                      yaxis = list (title = "Taxa Juros ao Ano"))
+fig
+```
+
+```{r}
+temp = fipezap_serieshistoricas %>% filter(Data >= "2012-01-01")
+fig <- plot_ly()
+fig <- fig %>% add_trace(x = temp$Data, y = as.numeric(temp$Total...12)*100, name = "FipeZap", type = 'scatter', mode = 'lines+markers', connectgaps = TRUE,line = list(shape = "spline"))
+fig <- fig %>% add_trace(x = fin_imob_taxas_reguladas_pos_TR$DataConsulta, y = fin_imob_taxas_reguladas_pos_TR$`CAIXA ECONOMICA FEDERAL`, name = "CAIXA", type = 'scatter', mode = 'lines+markers', connectgaps = TRUE,line = list(shape = "spline")) 
+fig <- fig %>% layout(title = "Índice de Preços de Imóveis Residenciais",
+                      xaxis = list(title = "Data<br><sup>Fonte: FipeZap</sup>"),
+                      yaxis = list (title = "Taxa Juros ao Ano"))
+fig
+```
+
+
+# load rais
+
+```{r message=FALSE, warning=FALSE}
+lista_de_dfs <- list()
+
+for(i in 1:100){
+  # Crie o caminho do arquivo
+  caminho_arquivo <- paste0("~/GitHub/AULAS/Dados/RAIS/RAIS_est_geocoded", i, ".csv")
+  
+  # Leia o CSV forçando 'clascnae20' a ser texto e adicione à lista
+  lista_de_dfs[[i]] <- read_csv(
+    caminho_arquivo,
+    col_types = cols(clascnae20 = col_character(),
+                     attributes.UnitName = col_character(),
+                     attributes.AddNum = col_character(),
+                     sbclas20 = col_character(),
+                     attributes.LevelName= col_character())
+  )
+}
+
+# Junte todos os data frames da lista em um único data frame
+RAIS_est_geocoded <- bind_rows(lista_de_dfs)
+
+```
+
+```{r}
+RAIS_est_geocoded = RAIS_est_geocoded[RAIS_est_geocoded$score>=98 & RAIS_est_geocoded$indraisneg == 0 & RAIS_est_geocoded$ibgesubsetor != 24,]
+RAIS_est_geocoded <- RAIS_est_geocoded %>% 
+  drop_na(long, lat)
+```
+
+```{r}
+shp_sp <- st_read("~/GitHub/AULAS/Dados/shp_base/Distritos_2017_region.shp")
+shp_sp <- st_zm(shp_sp)
+shp_sp <- st_transform(shp_sp, crs = 4326)
+shp_sp <- st_make_valid(shp_sp)
+```
+
+```{r}
+shp_sp <- st_read("~/GitHub/AULAS/Dados/shp_base/Distritos_2017_region.shp")
+shp_sp <- st_zm(shp_sp)
+shp_sp <- st_transform(shp_sp, crs = 4326)
+shp_sp <- st_make_valid(shp_sp)
+```
+
+```{r}
+shp_sp_cd <- st_read("~/GitHub/AULAS/Dados/Bairros/DISTRITO_MUNICIPAL_SP_SMDUPolygon.shp")
+shp_sp_cd <- st_zm(shp_sp_cd)
+shp_sp_cd <- st_transform(shp_sp_cd, crs = 4326)
+shp_sp_cd <- st_make_valid(shp_sp_cd)
+```
+
+
+```{r}
+pin_data <- data.frame(
+  nome = "Uberlândia",
+  lon = -46.63390630217495,
+  lat = -23.550443536456253
+)
+
+pin_sf <- st_as_sf(pin_data, coords = c("lon", "lat"), crs = 4326)
+
+```
+
+
+```{r}
+RAIS_est_geocoded <- st_as_sf(
+  RAIS_est_geocoded,
+  coords = c("long", "lat"), # <- longitude primeiro!
+  crs = 4326
+)
+```
+
+```{r}
+ponto_referencia_geom <- st_point(c(-46.63390630217495, -23.550443536456253))
+ponto_referencia_sf <- st_sfc(ponto_referencia_geom, crs = 4326)
+```
+
+```{r}
+RAIS_est_geocoded$distancia_marcozero <- format(st_distance(RAIS_est_geocoded, ponto_referencia_sf), scientific = FALSE)
+```
+
+```{r}
+RAIS_est_geocoded_rich <- st_join(RAIS_est_geocoded, shp_sp)
+```
+
+```{r}
+temp <- as.data.frame(RAIS_est_geocoded_rich) %>%
+  group_by(NomeDistri) %>%
+  summarise(
+    total_empregos = sum(as.numeric(estoque), na.rm = TRUE)
+  ) %>%
+  ungroup()
+left_join(temp, shp_sp, by = "NomeDistri") -> temp
+
+temp <- st_as_sf(temp,crs = 4326)
+```
+
+```{r}
+quantile(temp$total_empregos, probs = seq(0, 1, by = 0.2))
+```
+
+```{r}
+classIntervals(var = temp$total_empregos, n = 5, style = "jenks")
+```
+
+
+```{r}
+limites <- c(-Inf, 29525, 67549, 132651, 273770, Inf)
+
+rotulos <- c("0 - 29525", "29525 - 67549", "67549 - 132651", "132651 - 273770", "Mais de 273770")
+
+temp$faixa_empregos <- cut(temp$total_empregos,
+                                 breaks = limites,
+                                 labels = rotulos,
+                                 right = TRUE)
+
+library(ggplot2)
+
+ggplot(data = temp) +
+  geom_sf(aes(fill = faixa_empregos), shape = 21, color = "darkgray", size = 3) +
+  scale_fill_brewer(palette = "YlOrRd", name = "Faixa de Empregos") +
+  labs(title = "Distribuição de Empregos por Faixa") +
+  theme_minimal() +
+  geom_sf(data = shp_sp_cd, fill = NA, color = "black", size = 0.5) +
+  # --- ADICIONANDO O PIN AQUI ---
+  geom_sf(data = pin_sf, 
+          shape = 21,              # Formato de círculo com borda e preenchimento
+          fill = "dodgerblue",     # Cor de preenchimento do pin
+          size = 2,                # Tamanho do pin
+          stroke = 1) +          # Espessura da borda
+  geom_sf(data = shp_sp_cd, fill = NA, color = "black", size = 0.5) +
+  # Trocando para o estilo náutico
+  annotation_north_arrow(
+    location = "tl",
+    which_north = "true",
+    style = north_arrow_nautical # <-- MUDANÇA AQUI
+  )
+
+```
+
+```{r}
+tt <- sum(as.numeric(RAIS_est_geocoded_rich$estoque), na.rm = TRUE)
+temp <- as.data.frame(RAIS_est_geocoded_rich) %>%
+  group_by(NomeDistri) %>%
+  summarise(
+    share_empregos = sum(as.numeric(estoque), na.rm = TRUE)/tt*100
+  ) %>%
+  ungroup()
+left_join(temp, shp_sp, by = "NomeDistri") -> temp
+
+temp <- st_as_sf(temp,crs = 4326)
+```
+
+```{r}
+format(quantile(temp$share_empregos, probs = seq(0, 1, by = 0.2)), scientific = FALSE)
+```
+
+```{r}
+classIntervals(var = temp$share_empregos, n = 5, style = "jenks")
+```
+
+
+```{r}
+
+limites <- c(-Inf, 0.47, 1.08, 2.13, 4.4, Inf)
+
+rotulos <- c("0 - 0.47", "0.47 - 1.08", "1.08 - 2.13", "2.13 - 4.4", "Mais de 4.4")
+
+temp$faixa_empregos <- cut(temp$share_empregos,
+                                 breaks = limites,
+                                 labels = rotulos,
+                                 right = TRUE)
+
+library(ggplot2)
+
+ggplot(data = temp) +
+  geom_sf(aes(fill = faixa_empregos), shape = 21, color = "darkgray", size = 3) +
+  scale_fill_brewer(palette = "YlOrRd", name = "Faixa de Empregos") +
+  labs(title = "Distribuição do Share Empregos por Faixa") +
+  theme_minimal() +
+  geom_sf(data = shp_sp_cd, fill = NA, color = "black", size = 0.5) +
+  # --- ADICIONANDO O PIN AQUI ---
+  geom_sf(data = pin_sf, 
+          shape = 21,              # Formato de círculo com borda e preenchimento
+          fill = "dodgerblue",     # Cor de preenchimento do pin
+          size = 2,                # Tamanho do pin
+          stroke = 1) +          # Espessura da borda
+  geom_sf(data = shp_sp_cd, fill = NA, color = "black", size = 0.5) +
+  # Trocando para o estilo náutico
+  annotation_north_arrow(
+    location = "tl",
+    which_north = "true",
+    style = north_arrow_nautical # <-- MUDANÇA AQUI
+  )
+
+```
+
+```{r}
+temp <- as.data.frame(RAIS_est_geocoded_rich) %>%
+  filter(startsWith(clascnae20, "620")) %>% # add 63
+  group_by(NomeDistri) %>%
+  summarise(
+    total_empregos = sum(as.numeric(estoque), na.rm = TRUE)
+  ) %>%
+  ungroup()
+left_join(temp, shp_sp, by = "NomeDistri") -> temp
+
+temp <- st_as_sf(temp,crs = 4326)
+```
+
+```{r}
+quantile(temp$total_empregos, probs = seq(0, 1, by = 0.1))
+```
+
+```{r}
+classIntervals(var = temp$total_empregos, n = 5, style = "jenks")
+```
+
+```{r}
+limites <- c(-Inf,2268,8205,18360,23970, Inf)
+
+rotulos <- c("0 - 2268", "2268 - 8205", "8205 - 18360", "18360 - 23970", "Mais de 23970")
+
+temp$faixa_empregos <- cut(temp$total_empregos,
+                                 breaks = limites,
+                                 labels = rotulos,
+                                 right = TRUE)
+
+library(ggplot2)
+
+ggplot(data = temp) +
+  geom_sf(aes(fill = faixa_empregos), shape = 21, color = "darkgray", size = 3) +
+  scale_fill_brewer(palette = "YlOrRd", name = "Faixa de Empregos") +
+  labs(title = "Distribuição de Empregos por Faixa - Tecnologia") +
+  theme_minimal() +
+  geom_sf(data = shp_sp_cd, fill = NA, color = "black", size = 0.5) +
+  # --- ADICIONANDO O PIN AQUI ---
+  geom_sf(data = pin_sf, 
+          shape = 21,              # Formato de círculo com borda e preenchimento
+          fill = "dodgerblue",     # Cor de preenchimento do pin
+          size = 2,                # Tamanho do pin
+          stroke = 1) +          # Espessura da borda
+  geom_sf(data = shp_sp_cd, fill = NA, color = "black", size = 0.5) +
+  # Trocando para o estilo náutico
+  annotation_north_arrow(
+    location = "tl",
+    which_north = "true",
+    style = north_arrow_nautical # <-- MUDANÇA AQUI
+  )
+
+```
+
+```{r}
+tt <- sum(as.numeric(RAIS_est_geocoded_rich[startsWith(RAIS_est_geocoded_rich$clascnae20, "620"),]$estoque), na.rm = TRUE)
+temp <- as.data.frame(RAIS_est_geocoded_rich) %>%
+  filter(startsWith(clascnae20, "620")) %>% # add 63
+  group_by(NomeDistri) %>%
+  summarise(
+    share_empregos = sum(as.numeric(estoque), na.rm = TRUE)/tt*100
+  ) %>%
+  ungroup()
+left_join(temp, shp_sp, by = "NomeDistri") -> temp
+
+temp <- st_as_sf(temp,crs = 4326)
+```
+
+```{r}
+format(quantile(temp$share_empregos, probs = seq(0, 1, by = 0.2)), scientific = FALSE) ## jenks
+```
+
+```{r}
+classIntervals(var = temp$share_empregos, n = 5, style = "jenks")
+```
+
+```{r}
+
+limites <- c(-Inf, 1.43, 5.19, 11.61, 15.16, Inf)
+
+rotulos <- c("0 - 1.43", "1.43 - 5.19", "5.19 - 11.61", "11.61 - 15.16", "Mais de 15.16")
+
+temp$faixa_empregos <- cut(temp$share_empregos,
+                                 breaks = limites,
+                                 labels = rotulos,
+                                 right = TRUE)
+
+library(ggplot2)
+
+ggplot(data = temp) +
+  geom_sf(aes(fill = faixa_empregos), shape = 21, color = "darkgray", size = 3) +
+  scale_fill_brewer(palette = "YlOrRd", name = "Faixa de Empregos") +
+  labs(title = "Distribuição do Share Empregos por Faixa - Tecnologia") +
+  theme_minimal() +
+  geom_sf(data = shp_sp_cd, fill = NA, color = "black", size = 0.5) +
+  # --- ADICIONANDO O PIN AQUI ---
+  geom_sf(data = pin_sf, 
+          shape = 21,              # Formato de círculo com borda e preenchimento
+          fill = "dodgerblue",     # Cor de preenchimento do pin
+          size = 2,                # Tamanho do pin
+          stroke = 1) +          # Espessura da borda
+  geom_sf(data = shp_sp_cd, fill = NA, color = "black", size = 0.5) +
+  # Trocando para o estilo náutico
+  annotation_north_arrow(
+    location = "tl",
+    which_north = "true",
+    style = north_arrow_nautical # <-- MUDANÇA AQUI
+  )
+
+```
+
+```{r}
+prefixos <- c(64,66,65,68,69,70,71,73,74,82,78,79,85,86,96,95)
+
+temp <- as.data.frame(RAIS_est_geocoded_rich) %>%
+  filter(grepl(paste0("^(", paste0(prefixos, collapse = "|"), ")"), clascnae20)) %>%
+  group_by(NomeDistri) %>%
+  summarise(
+    total_empregos = sum(as.numeric(estoque), na.rm = TRUE)
+  ) %>%
+  ungroup()
+left_join(temp, shp_sp, by = "NomeDistri") -> temp
+
+temp <- st_as_sf(temp,crs = 4326)
+```
+
+```{r}
+quantile(temp$total_empregos, probs = seq(0, 1, by = 0.2))
+```
+
+```{r}
+classIntervals(var = temp$total_empregos, n = 5, style = "jenks")
+```
+
+```{r}
+limites <- c(-Inf, 14145, 41156, 68242, 96128, Inf)
+
+rotulos <- c("0 - 14145", "14145 - 41156", "41156 - 68242", "68242 - 96128", "Mais de 96128")
+
+temp$faixa_empregos <- cut(temp$total_empregos,
+                                 breaks = limites,
+                                 labels = rotulos,
+                                 right = TRUE)
+
+library(ggplot2)
+
+ggplot(data = temp) +
+  geom_sf(aes(fill = faixa_empregos), shape = 21, color = "darkgray", size = 3) +
+  scale_fill_brewer(palette = "YlOrRd", name = "Faixa de Empregos") +
+  labs(title = "Distribuição de Empregos por Faixa - FIRE e Serviços") +
+  theme_minimal() +
+  geom_sf(data = shp_sp_cd, fill = NA, color = "black", size = 0.5) +
+  # --- ADICIONANDO O PIN AQUI ---
+  geom_sf(data = pin_sf, 
+          shape = 21,              # Formato de círculo com borda e preenchimento
+          fill = "dodgerblue",     # Cor de preenchimento do pin
+          size = 2,                # Tamanho do pin
+          stroke = 1) +          # Espessura da borda
+  geom_sf(data = shp_sp_cd, fill = NA, color = "black", size = 0.5) +
+  # Trocando para o estilo náutico
+  annotation_north_arrow(
+    location = "tl",
+    which_north = "true",
+    style = north_arrow_nautical # <-- MUDANÇA AQUI
+  )
+
+```
+
+```{r}
+tt <- sum(as.numeric(RAIS_est_geocoded_rich[grepl(paste0("^(", paste0(prefixos, collapse = "|"), ")"), RAIS_est_geocoded_rich$clascnae20),]$estoque), na.rm = TRUE)
+temp <- as.data.frame(RAIS_est_geocoded_rich) %>%
+  filter(grepl(paste0("^(", paste0(prefixos, collapse = "|"), ")"), clascnae20)) %>%
+  group_by(NomeDistri) %>%
+  summarise(
+    share_empregos = sum(as.numeric(estoque), na.rm = TRUE)/tt*100
+  ) %>%
+  ungroup()
+left_join(temp, shp_sp, by = "NomeDistri") -> temp
+
+temp <- st_as_sf(temp,crs = 4326)
+```
+
+```{r}
+format(quantile(temp$share_empregos, probs = seq(0, 1, by = 0.2)), scientific = FALSE)
+```
+
+```{r}
+classIntervals(var = temp$share_empregos, n = 5, style = "jenks")
+```
+
+```{r}
+
+limites <- c(-Inf, 0.62, 1.83, 3.03, 4.27, Inf)
+
+rotulos <- c("0 - 0.62", "0.62 - 1.83", "1.83 - 3.03", "3.03 - 4.27", "Mais de 4.27")
+
+temp$faixa_empregos <- cut(temp$share_empregos,
+                                 breaks = limites,
+                                 labels = rotulos,
+                                 right = TRUE)
+
+library(ggplot2)
+
+ggplot(data = temp) +
+  geom_sf(aes(fill = faixa_empregos), shape = 21, color = "darkgray", size = 3) +
+  scale_fill_brewer(palette = "YlOrRd", name = "Faixa de Empregos") +
+  labs(title = "Distribuição do Share Empregos por Faixa - FIRE e Serviços") +
+  theme_minimal() +
+  geom_sf(data = shp_sp_cd, fill = NA, color = "black", size = 0.5) +
+  # --- ADICIONANDO O PIN AQUI ---
+  geom_sf(data = pin_sf, 
+          shape = 21,              # Formato de círculo com borda e preenchimento
+          fill = "dodgerblue",     # Cor de preenchimento do pin
+          size = 2,                # Tamanho do pin
+          stroke = 1) +          # Espessura da borda
+  geom_sf(data = shp_sp_cd, fill = NA, color = "black", size = 0.5) +
+  # Trocando para o estilo náutico
+  annotation_north_arrow(
+    location = "tl",
+    which_north = "true",
+    style = north_arrow_nautical # <-- MUDANÇA AQUI
+  )
+
+```
+
+```{r}
+prefixos <- c(471,472,478,475,474,477,476,453,454,476,478)
+
+temp <- as.data.frame(RAIS_est_geocoded_rich) %>%
+  filter(grepl(paste0("^(", paste0(prefixos, collapse = "|"), ")"), clascnae20)) %>%
+  group_by(NomeDistri) %>%
+  summarise(
+    total_empregos = sum(as.numeric(estoque), na.rm = TRUE)
+  ) %>%
+  ungroup()
+left_join(temp, shp_sp, by = "NomeDistri") -> temp
+
+temp <- st_as_sf(temp,crs = 4326)
+```
+
+```{r}
+quantile(temp$total_empregos, probs = seq(0, 1, by = 0.2))
+```
+
+```{r}
+classIntervals(var = temp$total_empregos, n = 5, style = "jenks")
+```
+
+```{r}
+limites <- c(-Inf, 3611, 7076, 11741, 19721, Inf)
+
+rotulos <- c("0 - 3611", "3611 - 7076", "7076 - 11741", "11741 - 19721", "Mais de 19721")
+
+temp$faixa_empregos <- cut(temp$total_empregos,
+                                 breaks = limites,
+                                 labels = rotulos,
+                                 right = TRUE)
+
+library(ggplot2)
+
+ggplot(data = temp) +
+  geom_sf(aes(fill = faixa_empregos), shape = 21, color = "darkgray", size = 3) +
+  scale_fill_brewer(palette = "YlOrRd", name = "Faixa de Empregos") +
+  labs(title = "Distribuição de Empregos por Faixa - Varejo") +
+  theme_minimal() +
+  geom_sf(data = shp_sp_cd, fill = NA, color = "black", size = 0.5) +
+  # --- ADICIONANDO O PIN AQUI ---
+  geom_sf(data = pin_sf, 
+          shape = 21,              # Formato de círculo com borda e preenchimento
+          fill = "dodgerblue",     # Cor de preenchimento do pin
+          size = 2,                # Tamanho do pin
+          stroke = 1) +          # Espessura da borda
+  geom_sf(data = shp_sp_cd, fill = NA, color = "black", size = 0.5) +
+  # Trocando para o estilo náutico
+  annotation_north_arrow(
+    location = "tl",
+    which_north = "true",
+    style = north_arrow_nautical # <-- MUDANÇA AQUI
+  )
+
+```
+
+```{r}
+tt <- sum(as.numeric(RAIS_est_geocoded_rich[grepl(paste0("^(", paste0(prefixos, collapse = "|"), ")"), RAIS_est_geocoded_rich$clascnae20),]$estoque), na.rm = TRUE)
+temp <- as.data.frame(RAIS_est_geocoded_rich) %>%
+  filter(grepl(paste0("^(", paste0(prefixos, collapse = "|"), ")"), clascnae20)) %>%
+  group_by(NomeDistri) %>%
+  summarise(
+    share_empregos = sum(as.numeric(estoque), na.rm = TRUE)/tt*100
+  ) %>%
+  ungroup()
+left_join(temp, shp_sp, by = "NomeDistri") -> temp
+
+temp <- st_as_sf(temp,crs = 4326)
+```
+ 
+```{r}
+format(quantile(temp$share_empregos, probs = seq(0, 1, by = 0.2)), scientific = FALSE)
+```
+
+```{r}
+classIntervals(var = temp$share_empregos, n = 5, style = "jenks")
+```
+
+```{r meu-grafico-grande}
+
+limites <- c(-Inf, 0.44, 0.87, 1.45, 2.44, Inf)
+
+rotulos <- c("0 - 0.44", "0.44 - 0.87", "0.87 - 1.45", "1.45 - 2.44", "Mais de 2.44")
+
+temp$faixa_empregos <- cut(temp$share_empregos,
+                                 breaks = limites,
+                                 labels = rotulos,
+                                 right = TRUE)
+
+library(ggplot2)
+
+ggplot(data = temp) +
+  geom_sf(aes(fill = faixa_empregos), shape = 21, color = "darkgray", size = 0.5) +
+  scale_fill_brewer(palette = "YlOrRd", name = "Faixa de Empregos") +
+  labs(title = "Distribuição do Share Empregos por Faixa - Varejo") +
+  theme_minimal() +
+  # --- ADICIONANDO O PIN AQUI ---
+  geom_sf(data = pin_sf, 
+          shape = 21,              # Formato de círculo com borda e preenchimento
+          fill = "dodgerblue",     # Cor de preenchimento do pin
+          size = 2,                # Tamanho do pin
+          stroke = 1) +          # Espessura da borda
+  geom_sf(data = shp_sp_cd, fill = NA, color = "black", size = 0.5) +
+  # Trocando para o estilo náutico
+  annotation_north_arrow(
+    location = "tl",
+    which_north = "true",
+    style = north_arrow_nautical # <-- MUDANÇA AQUI
+  )
+  
+
+
+```
+
+```{r}
+Agregados_por_setores_demografia_BR <- read_excel("~/GitHub/AULAS/Dados/Agregados_por_setores_demografia_BR.xlsx")
+```
+
+```{r}
+shp_censo <- st_read("~/GitHub/AULAS/Dados/SP_setores_CD2022/SP_setores_CD2022.shp")
+
+if (st_crs(shp_sp) != st_crs(shp_censo)) {
+  shp_censo <- st_transform(shp_censo, crs = st_crs(shp_sp))
+  print("CRS transformado com sucesso!")
+}
+
+shp_censo <- st_make_valid(shp_censo)
+shp_sp <- st_make_valid(shp_sp)
+
+# Filtra o shp_alvo, mantendo apenas o que está dentro do shp_filtro
+shp_censo <- st_filter(shp_censo, shp_sp)
+
+shp_censo_final <- st_join(shp_censo, shp_sp)
+
+```
+
+```{r}
+merge(Agregados_por_setores_demografia_BR, shp_censo_final, by.x = "CD_setor", by.y = "CD_SETOR") -> Agregados_por_setores_demografia_BR
+```
+
+```{r}
+temp <- as.data.frame(Agregados_por_setores_demografia_BR) %>%
+  group_by(NomeDistri,Area_ha) %>%
+  summarise(
+    total_empregos = sum(as.numeric(V01006), na.rm = TRUE)
+  ) %>%
+  ungroup()
+left_join(temp, shp_sp, by = "NomeDistri") -> temp
+temp$total_empregos = temp$total_empregos / temp$Area_ha.x
+temp <- st_as_sf(temp,crs = 4326)
+```
+
+```{r}
+quantile(temp$total_empregos, probs = seq(0, 1, by = 0.2))
+```
+
+```{r}
+classIntervals(var = temp$total_empregos, n = 5, style = "jenks")
+```
+
+```{r}
+limites <- c(-Inf, 47.50, 106.34, 149.54, 199.04, Inf)
+
+rotulos <- c("0 - 47.50", "47.50 - 106.34", "106.34 - 149.54", "149.54 - 199.04", "Mais de 199.04")
+
+temp$faixa_empregos <- cut(temp$total_empregos,
+                                 breaks = limites,
+                                 labels = rotulos,
+                                 right = TRUE)
+
+library(ggplot2)
+
+ggplot(data = temp) +
+  geom_sf(aes(fill = faixa_empregos), shape = 21, color = "darkgray", size = 3) +
+  scale_fill_brewer(palette = "YlOrRd", name = "População") +
+  labs(title = "Densidade Populacional") +
+  theme_minimal() +
+  geom_sf(data = shp_sp_cd, fill = NA, color = "black", size = 0.5) +
+  # --- ADICIONANDO O PIN AQUI ---
+  geom_sf(data = pin_sf, 
+          shape = 21,              # Formato de círculo com borda e preenchimento
+          fill = "dodgerblue",     # Cor de preenchimento do pin
+          size = 2,                # Tamanho do pin
+          stroke = 1) +          # Espessura da borda
+  geom_sf(data = shp_sp_cd, fill = NA, color = "black", size = 0.5) +
+  # Trocando para o estilo náutico
+  annotation_north_arrow(
+    location = "tl",
+    which_north = "true",
+    style = north_arrow_nautical # <-- MUDANÇA AQUI
+  )
+
+```
+
+```{r}
+ponto_referencia_geom <- st_point(c(-46.63390630217495, -23.550443536456253))
+ponto_referencia_sf <- st_sfc(ponto_referencia_geom, crs = 4326)
+```
+
+```{r}
+Agregados_por_setores_demografia_BR <- read_excel("~/GitHub/AULAS/Dados/Agregados_por_setores_demografia_BR.xlsx")
+```
+
+```{r}
+shp_censo <- st_read("~/GitHub/AULAS/Dados/SP_setores_CD2022/SP_setores_CD2022.shp")
+
+if (st_crs(shp_sp) != st_crs(shp_censo)) {
+  shp_censo <- st_transform(shp_censo, crs = st_crs(shp_sp))
+  print("CRS transformado com sucesso!")
+}
+
+shp_censo <- st_make_valid(shp_censo)
+shp_sp <- st_make_valid(shp_sp)
+
+# Filtra o shp_alvo, mantendo apenas o que está dentro do shp_filtro
+shp_censo <- st_filter(shp_censo, shp_sp)
+
+shp_censo_final <- st_join(shp_censo, shp_sp)
+
+```
+
+```{r}
+merge(Agregados_por_setores_demografia_BR, shp_censo_final, by.x = "CD_setor", by.y = "CD_SETOR") -> Agregados_por_setores_demografia_BR
+```
+
+```{r}
+Agregados_por_setores_demografia_BR <- st_as_sf(
+  Agregados_por_setores_demografia_BR,
+  crs = 4326
+)
+```
+
+```{r}
+ponto_referencia_geom <- st_point(c(-46.63390630217495, -23.550443536456253))
+ponto_referencia_sf <- st_sfc(ponto_referencia_geom, crs = 4326)
+```
+
+```{r}
+Agregados_por_setores_demografia_BR$distancia_marcozero <- format(st_distance(Agregados_por_setores_demografia_BR, ponto_referencia_sf), scientific = FALSE)
+```
+
+```{r}
+
+Agregados_por_setores_demografia_BR$distancia_marcozero = as.numeric(gsub("[^0-9.]", "", Agregados_por_setores_demografia_BR$distancia_marcozero))
+Agregados_por_setores_demografia_BR$V01006 = as.numeric(Agregados_por_setores_demografia_BR$V01006)
+
+dados_modelo <- Agregados_por_setores_demografia_BR %>% filter(distancia_marcozero > 0 & !is.na(distancia_marcozero))
+
+group_by(dados_modelo, NomeDistri) %>%
+  summarise(
+    total_populacao = sum(as.numeric(V01006), na.rm = TRUE),
+    distancia_marcozero = mean(distancia_marcozero, na.rm = TRUE)
+  ) %>%
+  ungroup() -> dados_modelo
+```
+
+```{r}
+modelo_densidade <- lm(total_populacao ~ distancia_marcozero, data = dados_modelo)
+summary(modelo_densidade)
+
+```
+
+```{r}
+library(ggplot2)
+library(mgcv)
+
+# Crie o gráfico camada por camada
+ggplot(data = dados_modelo, aes(x = distancia_marcozero, y = total_populacao)) +
+  
+  # 1. Adiciona os pontos de dispersão
+  geom_point(color = "grey", shape = 16, alpha = 0.8) +
+  
+  # 2. Adiciona a linha de tendência suave (a curva)
+  # Usamos o método 'gam' (Generalized Additive Model) que é ótimo para capturar curvas complexas
+  geom_smooth(method = "gam", 
+              formula = y ~ s(x, k=5), # s(x) cria uma curva suave
+              se = FALSE,              # 'se = FALSE' remove a área de intervalo de confiança
+              color = "black",         # Cor da linha
+              linewidth = 0.8) +
+  # regressa linear
+  geom_smooth(method = "lm", 
+              color = "red", 
+              se = FALSE, 
+              linewidth = 0.8) +
+  
+  # 4. Adiciona títulos e fontes
+  labs(
+    title = "Densidade Populacional de Uberlândia, 2022",
+    caption = "Fonte: Cálculo próprio com dados do Censo IBGE."
+  ) +
+  
+  # 5. Aplica um tema visual limpo e profissional
+  theme_classic() +
+  theme(
+    # Adiciona a caixa preta ao redor do gráfico
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1), 
+    axis.title = element_text(size = 12),
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold")
+  )
+```
+
+```{r}
+RAIS_est_geocoded_rich$distancia_marcozero <- format(st_distance(RAIS_est_geocoded_rich, ponto_referencia_sf), scientific = FALSE)
+```
+
+```{r}
+
+RAIS_est_geocoded_rich$distancia_marcozero = as.numeric(gsub("[^0-9.]", "", RAIS_est_geocoded_rich$distancia_marcozero))
+RAIS_est_geocoded_rich$estoque = as.numeric(RAIS_est_geocoded_rich$estoque)
+dados_modelo <- RAIS_est_geocoded_rich %>% filter(distancia_marcozero > 0 & !is.na(distancia_marcozero))
+
+group_by(dados_modelo, NomeDistri) %>%
+  summarise(
+    total_estoque = sum(as.numeric(estoque), na.rm = TRUE),
+    distancia_marcozero = mean(distancia_marcozero, na.rm = TRUE)
+  ) %>%
+  ungroup() -> dados_modelo
+
+modelo_densidade <- lm(total_estoque ~ distancia_marcozero, data = dados_modelo)
+summary(modelo_densidade)
+
+```
+
+```{r}
+library(ggplot2)
+library(mgcv)
+
+# Crie o gráfico camada por camada
+ggplot(data = dados_modelo, aes(x = (distancia_marcozero), y = total_estoque)) +
+  
+  # 1. Adiciona os pontos de dispersão
+  geom_point(color = "grey", shape = 16, alpha = 0.8) +
+  
+  # 2. Adiciona a linha de tendência suave (a curva)
+  # Usamos o método 'gam' (Generalized Additive Model) que é ótimo para capturar curvas complexas
+  geom_smooth(method = "gam", 
+              formula = y ~ s(x, k=5), # s(x) cria uma curva suave
+              se = FALSE,              # 'se = FALSE' remove a área de intervalo de confiança
+              color = "black",         # Cor da linha
+              linewidth = 0.8) +
+  
+  # regressa linear
+  geom_smooth(method = "lm", 
+              color = "red", 
+              se = FALSE, 
+              linewidth = 0.8) +
+  
+  # 4. Adiciona títulos e fontes
+  labs(
+    title = "Densidade Populacional de Uberlândia, 2022",
+    caption = "Fonte: Cálculo próprio com dados do Censo IBGE."
+  ) +
+  
+  # 5. Aplica um tema visual limpo e profissional
+  theme_classic() +
+  theme(
+    # Adiciona a caixa preta ao redor do gráfico
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1), 
+    axis.title = element_text(size = 12),
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold")
+  )
+```
